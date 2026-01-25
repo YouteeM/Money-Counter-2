@@ -1,5 +1,15 @@
 package com.example.moneycounter2
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import java.util.Calendar
+import androidx.compose.animation.SizeTransform
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -191,13 +201,15 @@ fun MoneyCounterApp(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
+                .verticalScroll(rememberScrollState())  // ADD THIS LINE
         ) {
             // Header
             Text(
                 text = "Money Counter",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 16.dp)
+                modifier = Modifier.padding(vertical = 16.dp),
+                color = Color.White
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -207,7 +219,7 @@ fun MoneyCounterApp(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFF1C1C1E)  // Dark gray
+                    containerColor = Color(0xFF1C1C1E)
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
@@ -217,21 +229,16 @@ fun MoneyCounterApp(
                     Text(
                         text = "Current Balance",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF8E8E93)  // Light gray
+                        color = Color(0xFF8E8E93)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "د.إ ${String.format("%.2f", viewModel.balance)}",
-                        fontSize = 48.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFBB86FC)  // Purple accent
-                    )
+                    AnimatedBalance(balance = viewModel.balance)
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Input Card
+            // Input Section
             OutlinedTextField(
                 value = amountInput,
                 onValueChange = { amountInput = it },
@@ -250,6 +257,9 @@ fun MoneyCounterApp(
                     cursorColor = Color(0xFFBB86FC)
                 )
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -261,15 +271,6 @@ fun MoneyCounterApp(
                 Column(
                     modifier = Modifier.padding(24.dp)
                 ) {
-                    Text(
-                        text = "Enter Amount",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -317,7 +318,6 @@ fun MoneyCounterApp(
 
                     if (viewModel.transactions.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
-
                         TextButton(
                             onClick = { viewModel.clearAll() },
                             modifier = Modifier.fillMaxWidth()
@@ -327,6 +327,8 @@ fun MoneyCounterApp(
                     }
                 }
             }
+
+            // Transaction History
             if (viewModel.transactions.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -350,10 +352,10 @@ fun MoneyCounterApp(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        LazyColumn(
+                        Column(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(viewModel.transactions) { transaction ->
+                            viewModel.transactions.forEach { transaction ->
                                 TransactionItem(transaction)
                             }
                         }
@@ -363,15 +365,299 @@ fun MoneyCounterApp(
         }
     }
 }
+@Composable
+fun MoneyChart(transactions: List<Transaction>) {
+    if (transactions.isEmpty()) return
+
+    // Get current month and year
+    val calendar = Calendar.getInstance()
+    val currentMonth = calendar.get(Calendar.MONTH)
+    val currentYear = calendar.get(Calendar.YEAR)
+
+    // Filter transactions for current month only
+    val currentMonthTransactions = transactions.filter { transaction ->
+        val transactionCalendar = Calendar.getInstance().apply {
+            timeInMillis = transaction.timestamp
+        }
+        transactionCalendar.get(Calendar.MONTH) == currentMonth &&
+                transactionCalendar.get(Calendar.YEAR) == currentYear
+    }
+
+    if (currentMonthTransactions.isEmpty()) {
+        // Show message if no transactions this month
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF1C1C1E)
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "This Month's Flow",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "No transactions this month",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF8E8E93)
+                )
+            }
+        }
+        return
+    }
+
+    val income = currentMonthTransactions.filter { it.type == TransactionType.ADD }.sumOf { it.amount }
+    val expenses = currentMonthTransactions.filter { it.type == TransactionType.REMOVE }.sumOf { it.amount }
+    val maxValue = maxOf(income, expenses, 1.0)
+
+    // Get month name
+    val monthName = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date())
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF1C1C1E)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "This Month's Flow",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+                Text(
+                    text = monthName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF8E8E93)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Income Bar
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Income",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF4CAF50)
+                    )
+                    Text(
+                        text = "AED ${String.format("%.2f", income)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .background(Color(0xFF2C2C2E), RoundedCornerShape(8.dp))
+                ) {
+                    val incomeWidth by animateFloatAsState(
+                        targetValue = (income / maxValue).toFloat(),
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "income_width"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(incomeWidth)
+                            .fillMaxHeight()
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color(0xFF4CAF50),
+                                        Color(0xFF66BB6A)
+                                    )
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Expenses Bar
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Expenses",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFEF5350)
+                    )
+                    Text(
+                        text = "AED ${String.format("%.2f", expenses)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .background(Color(0xFF2C2C2E), RoundedCornerShape(8.dp))
+                ) {
+                    val expensesWidth by animateFloatAsState(
+                        targetValue = (expenses / maxValue).toFloat(),
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "expenses_width"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(expensesWidth)
+                            .fillMaxHeight()
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color(0xFFEF5350),
+                                        Color(0xFFE57373)
+                                    )
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Net Balance for the month
+            val netBalance = income - expenses
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF2C2C2E), RoundedCornerShape(12.dp))
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+
+            ) {
+                Text(
+                    text = "Monthly Net",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    text = "AED ${String.format("%.2f", netBalance)}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (netBalance >= 0) Color(0xFF4CAF50) else Color(0xFFEF5350)
+                )
+
+            }
+        }
+    }
+}
+
+@Composable
+fun AnimatedBalance(balance: Double) {
+    val balanceString = String.format("%.2f", balance)
+    var previousBalance by remember { mutableStateOf(balance) }
+    val scale by animateFloatAsState(
+        targetValue = if (balance != previousBalance) 1.2f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        finishedListener = { previousBalance = balance }
+    )
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.graphicsLayer(
+            scaleX = scale,
+            scaleY = scale
+        )
+    ) {
+        Text(
+            text = "AED ",
+            fontSize = 48.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFFBB86FC)
+        )
+
+        balanceString.forEachIndexed { index, char ->
+            AnimatedContent(
+                targetState = char,
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        slideInVertically { height -> height } togetherWith
+                                slideOutVertically { height -> -height }
+                    } else {
+                        slideInVertically { height -> -height } togetherWith
+                                slideOutVertically { height -> height }
+                    }.using(
+                        SizeTransform(clip = false)
+                    )
+                },
+                label = "balance_$index"
+            ) { animatedChar ->
+                Text(
+                    text = animatedChar.toString(),
+                    fontSize = 48.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFBB86FC)
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun TransactionItem(transaction: Transaction) {
     val isAdd = transaction.type == TransactionType.ADD
+    val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+    val date = Date(transaction.timestamp)
 
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF2C2C2E),  // Slightly lighter dark gray
+        color = Color(0xFF2C2C2E),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -380,7 +666,7 @@ fun TransactionItem(transaction: Transaction) {
         ) {
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = if (isAdd) Color(0xFF1C3A1F) else Color(0xFF3A1C1C),  // Darker tints
+                color = if (isAdd) Color(0xFF1C3A1F) else Color(0xFF3A1C1C),
                 modifier = Modifier.size(40.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -395,18 +681,34 @@ fun TransactionItem(transaction: Transaction) {
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "${if (isAdd) "+" else "-"}$${String.format("%.2f", transaction.amount)}",
+                    text = "${if (isAdd) "+" else "-"} AED ${String.format("%.2f", transaction.amount)}",
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
                     color = Color.White
                 )
-                Text(
-                    text = timeFormat.format(Date(transaction.timestamp)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF8E8E93)
-                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = dateFormat.format(date),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF8E8E93)
+                    )
+                    Text(
+                        text = "•",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF8E8E93)
+                    )
+                    Text(
+                        text = timeFormat.format(date),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF8E8E93)
+                    )
+                }
             }
         }
     }
